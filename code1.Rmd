@@ -1,0 +1,836 @@
+---
+title: "EDA and Classification Models hw1,1  Remon Roshdy "
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+```
+
+# 1.EDA
+
+## 1.1 Loading Data
+
+```{r }
+
+df <- read.csv("dssplice.csv",stringsAsFactors=T)
+
+dim(df)
+```
+# Dimension of data is found to be 3190*62 which means there are 3190 rows(number of observations) and 62 columns(number of variables) in this dataset. # The number of columns include 61 features and 1 class variable.
+
+## 1.2 Data Description
+
+```{r }
+names(df)
+head(df)
+
+```
+# We can see from above output, all the features(independent columns) have character values so we have all categorical features in our data.          #"Instance_name" field corresponds to individual's ID for which all rest of 60 characteristic and class field is populated.
+
+## 1.3 Analysis
+
+```{r }
+summary(df)
+
+```
+From above summary report, we can see that all 60 features have "A","C","D","G","T","N","R","S" values distributed almost equally except for "D",N","R" and "S" values which have very few counts in all features.
+"Class" variable has three categories i.e., "EI", "IE" and "N" out of which "N" has highest occurring. Since number of classes is larger than 2, so we are dealing with Multi-class Classification. 
+
+```{r }
+table(df$Class)
+barplot(table(df$Class),
+        main = "Class Distribution")
+```
+By looking at frequency distribution of classes, we can say there is a class imbalance issue since "N" has 2:1 count ratio with both "EI" and "IE" classes. We will handle imbalance issue later in same report.
+
+### 1.4 Checking Missing values
+There are no missing values in data.
+``` {r}
+sum(is.na(df)) 
+```
+
+
+### 1.5 Visualization
+Bar plots of few of the features is shown in below image. And approximately all values are equally distributed as summarized earlier.
+``` {r set-options,fig.width=16, fig.height=60}
+library(dplyr)
+library(ggplot2)
+library(purrr)
+library(tidyr)
+df1 <- df[,c(-1,-62)]
+df1 %>%
+  gather() %>% 
+  ggplot(aes(value)) +
+    facet_wrap(~ key, scales = "free",nrow=20) +
+    geom_bar()
+```
+
+# 2. Classification Models
+
+### 2.1 Checking Important features
+
+# We will find out best features using variable importance and compare performance of model using best features and model using all features
+
+``` {r}
+library(rpart)
+require(rpart)
+
+#drop irrelevant column     
+df2 <- df[,-1]
+tree<-rpart(Class~.,data=df2)
+tree$variable.importance
+```
+# Above result shows significant features to determine Class of an observation. "attribute_30" is the most significant feature among all 60 features.
+
+
+## 2.2 Train-test split
+
+# Splitting the data into train and test samples to perform further classification modeling on this data with Class variable as target and rest of #variables as predictors.
+``` {r}
+set.seed(12)
+train_index = sample(1:nrow(df2), 0.70*nrow(df2))
+train = df2[train_index, ]
+test = df2[-train_index, ]
+```
+
+
+## 2.3 Handling Class Imbalance in training data
+
+# We can see that 1123 observations is class "N" which almost twice of 560 observation in "EI" and 550 observation in "IE" which implies class #imbalance issue in training data. 
+#Based on proportion table, 50% is in "N" class, 25% and 24% in "EI" and "IE" classes respectively.
+#There is an imbalance in all the classes in both TRAIN and TEST set, and imbalanced classes may create bias in the predictive model and impact the #accuracy of the model, so the next step is to balance all the classes. Here, we are only to balance the classes in TRAIN data set only in order to #prevent overfitting on our performances.
+``` {r}
+table(train$Class)
+prop.table(table(train$Class))
+```
+
+
+### 2.3.1 Assigning weights
+
+#We will assign weights to each observation basis Class variable proportion to equalise the proportion in training set in all further classification #techniques. Computed weight vector in formats as required in respective functions in R.
+```{r}
+
+
+# WE are using ifelse  referencing  train$class  and  going into the frequency table find out how many  N  in our set.
+# and assign each group to have 1/3 
+
+wt <- ifelse(train$Class == "EI",
+                        (1/table(train$Class)[1]) * (1/3), 
+            ifelse(train$Class == "IE",
+                        (1/table(train$Class)[2]) * (1/3),
+                        (1/table(train$Class)[3]) * (1/3)))
+
+wt_svm = 100 / table(train$Class)
+```
+
+
+## 2.4 Logistic Regression
+
+#The logistic classification model (or logit model) is a binary classification model in which the conditional probability of one of the two possible #realizations of the output variable is assumed to be equal to a linear combination of the input variables, transformed by the logistic function.
+
+Comparing model with all features and 18 best features. 
+``` {r}
+#model with all 60 features  // implicitly taking care of the hot encoding for logistic, SVM and Decision Tree. 
+
+logistic_fit_60 = nnet::multinom(Class~.,train, weights = wt)
+
+summary(logistic_fit_60)
+
+
+# Make predictions
+
+pred <- predict(logistic_fit_60,test)
+
+# Model accuracy
+#  to compare the value 1,0  it will accumulate each observation 
+
+mean(pred == test$Class) 
+AIC(logistic_fit_60)
+
+```
+
+``` {r}
+
+#Model with best 18 features selected using variable importance 
+
+logistic_fit_18 = nnet::multinom(Class~attribute_30 +attribute_29+attribute_31+attribute_32+ attribute_35+attribute_33 + attribute_28 + attribute_34+ attribute_36 + attribute_23 +attribute_25+attribute_20+attribute_22 + attribute_26 + attribute_21 + attribute_24 + attribute_17 + attribute_16, train, weights = wt)
+
+# Make predictions
+
+pred_class_log <- predict(logistic_fit_18,test)
+
+# Model accuracy
+
+print("Accuracy of Logistic model is:") 
+acc_logistic <- mean(pred_class_log == test$Class)
+acc_logistic
+
+
+AIC(logistic_fit_18)
+```
+#We can see that model using best 18 features(accuracy:95%, AIC= 232) is much better performing than model with all features(accuracy:91%, AIC:748)  in #terms of AIC and accuracy both.
+#So we will use these 18 variables only going forward in models.
+
+### 2.4.1 Model Performance Evaluation
+```{r}
+# ROC plot
+library(pROC)
+
+pred_logistic <- predict(logistic_fit_18, test, type = 'prob')
+pred_logistic <- data.frame(pred_logistic)
+colnames(pred_logistic) <- paste(colnames(pred_logistic), "_pred_logistic")
+
+# Merge true labels and predicted values
+true_label <- dummies::dummy(test$Class, sep = ".")
+true_label <- data.frame(true_label)
+colnames(true_label) <- gsub(".*?\\.", "", colnames(true_label))
+colnames(true_label) <- paste(colnames(true_label), "_true")
+
+final_df <- cbind(true_label, pred_logistic)
+
+# multiROC 
+require(multiROC)
+roc_res <- multi_roc(final_df, force_diag=T)
+
+# Plot
+
+plot_roc_df <- plot_roc_data(roc_res)
+
+require(ggplot2)
+ggplot(plot_roc_df, aes(x = 1-Specificity, y=Sensitivity)) +
+  geom_path(aes(color = Group, linetype=Method), size=1.5) +
+  geom_segment(aes(x = 0, y = 0, xend = 1, yend = 1), 
+                        colour='grey', linetype = 'dotdash') +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5), 
+                 legend.justification=c(1, 0), legend.position=c(.95, .05),
+                 legend.title=element_blank(), 
+                 legend.background = element_rect(fill=NULL, size=0.5, 
+                                                           linetype="solid", colour ="black"))
+
+# AUC
+
+prob <- predict(logistic_fit_18, test, type = 'prob')
+auc_logistic <- multiclass.roc(test$Class,prob) #AUC score
+auc_logistic
+
+# confusion matrix
+cm <- table(test$Class, pred_class_log )
+cm
+
+# Specificity
+
+Specificty_class_EI <- (cm[2, 2] + cm[3, 3])/(cm[2, 1] + cm[3, 1] + cm[2, 2] + cm[3, 3])
+
+Specificty_class_IE <- (cm[1, 1] + cm[3, 3])/(cm[1, 2] + cm[3, 2] + cm[1, 1] + cm[3, 3])
+
+Specificty_class_N <- (cm[2, 2] + cm[1, 1])/(cm[1, 3] + cm[2, 3] + cm[2, 2] + cm[1, 1])
+
+spec_logistic <- matrix(c(Specificty_class_EI,Specificty_class_IE,Specificty_class_N),nrow=1,dimnames=list("",c("EI","IE","N")))
+spec_logistic
+
+# Precision
+prec_logistic <- (diag(cm) / colSums(cm))
+prec_logistic
+
+# Recall(sensitivity) for each class 
+recall_logistic <- (diag(cm) / rowSums(cm))
+recall_logistic
+
+```
+
+
+
+
+
+
+
+
+## 2.5 SVM Classification
+
+
+#Support vector machines (SVMs) are powerful yet flexible supervised machine learning algorithms which are used both for classification and regression. #But generally, they are used in classification problems.An SVM model is basically a representation of different classes in a hyperplane in #multidimensional space. The hyperplane will be generated in an iterative manner by SVM so that the error can be minimized. The goal of SVM is to #divide the datasets into classes to find a maximum marginal hyperplane (MMH).
+
+
+``` {r}
+
+# loading library required
+
+library(e1071)
+
+
+# fitting model on training data
+
+svmfit = svm(Class ~ attribute_30 +attribute_29+attribute_31+attribute_32+ attribute_35+attribute_33 + attribute_28 + attribute_34+ attribute_36 + attribute_23 +attribute_25+attribute_20+attribute_22 + attribute_26 + attribute_21 + attribute_24 + attribute_17 + attribute_16, 
+             data = train, method="C-classification", kernel = "radial", cost = 10, scale = FALSE, class.weights =wt_svm, probability=TRUE)
+
+
+# Make predictions
+pred_class_svm = predict(svmfit, test)
+
+```
+
+### 2.5.1 Model Performance Evaluation
+```{r}
+# Model accuracy
+acc_svm <- mean(pred_class_svm == test$Class)
+acc_svm
+
+# ROC plot
+
+pred_svm <- predict(svmfit, test, probability = TRUE)
+pred_svm <- data.frame(attr(pred_svm, "probabilities"))
+colnames(pred_svm) <- paste(colnames(pred_svm), "_pred_svm")
+
+# Merge true labels and predicted values
+true_label <- dummies::dummy(test$Class, sep = ".")
+true_label <- data.frame(true_label)
+colnames(true_label) <- gsub(".*?\\.", "", colnames(true_label))
+colnames(true_label) <- paste(colnames(true_label), "_true")
+
+final_df <- cbind(true_label, pred_svm)
+
+# multiROC 
+require(multiROC)
+roc_res <- multi_roc(final_df, force_diag=T)
+
+# Plot
+plot_roc_df <- plot_roc_data(roc_res)
+
+require(ggplot2)
+ggplot(plot_roc_df, aes(x = 1-Specificity, y=Sensitivity)) +
+  geom_path(aes(color = Group, linetype=Method), size=1.5) +
+  geom_segment(aes(x = 0, y = 0, xend = 1, yend = 1), 
+                        colour='grey', linetype = 'dotdash') +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5), 
+                 legend.justification=c(1, 0), legend.position=c(.95, .05),
+                 legend.title=element_blank(), 
+                 legend.background = element_rect(fill=NULL, size=0.5, 
+                                                           linetype="solid", colour ="black"))
+
+# AUC
+
+prob <- predict(svmfit, test, probability = TRUE)
+auc_svm <- multiclass.roc(test$Class,attr(prob, "probabilities")) #AUC score
+auc_svm
+
+# confusion matrix
+cm <- table(test$Class, pred_class_svm )
+cm
+
+# Specificity
+
+Specificty_class_EI <- (cm[2, 2] + cm[3, 3])/(cm[2, 1] + cm[3, 1] + cm[2, 2] + cm[3, 3])
+
+Specificty_class_IE <- (cm[1, 1] + cm[3, 3])/(cm[1, 2] + cm[3, 2] + cm[1, 1] + cm[3, 3])
+
+Specificty_class_N <- (cm[2, 2] + cm[1, 1])/(cm[1, 3] + cm[2, 3] + cm[2, 2] + cm[1, 1])
+
+spec_svm <- matrix(c(Specificty_class_EI,Specificty_class_IE,Specificty_class_N),nrow=1,dimnames=list("",c("EI","IE","N")))
+
+
+# Precision
+prec_svm <- (diag(cm) / colSums(cm))
+prec_svm
+
+# Recall(sensitivity) for each class 
+recall_svm <- (diag(cm) / rowSums(cm))
+recall_svm
+
+```
+
+
+
+
+
+## 2.6 Decision Tree
+
+
+#Decision tree algorithm falls under the category of supervised learning. They can be used to solve both regression and classification #problems.Decision tree uses the tree representation to solve the problem in which each leaf node corresponds to a class label and attributes are #represented on the internal node of the tree.
+
+
+``` {r}
+
+# fitting decision on training data set
+
+
+tree<-rpart(Class~attribute_30 +attribute_29+attribute_31+attribute_32+ attribute_35+attribute_33 + attribute_28 + attribute_34+ attribute_36 + attribute_23 +attribute_25+attribute_20+attribute_22 + attribute_26 + attribute_21 + attribute_24 + attribute_17 + attribute_16, data=train,weights = wt)
+
+
+# Make predictions
+
+pred_class_tree = predict(tree, newdata=test,type="class")
+
+
+```
+
+### 2.6.1 Model Performance Evaluation
+
+```{r}
+# Model accuracy
+acc_tree <- mean(pred_class_tree == test$Class)
+acc_tree
+
+# ROC plot
+
+pred_tree <- predict(tree, test, type='prob')
+pred_tree <- data.frame(pred_tree)
+colnames(pred_tree) <- paste(colnames(pred_tree), "_pred_tree")
+
+# Merge true labels and predicted values
+true_label <- dummies::dummy(test$Class, sep = ".")
+true_label <- data.frame(true_label)
+colnames(true_label) <- gsub(".*?\\.", "", colnames(true_label))
+colnames(true_label) <- paste(colnames(true_label), "_true")
+
+final_df <- cbind(true_label, pred_tree)
+
+# multiROC 
+
+require(multiROC)
+roc_res <- multi_roc(final_df, force_diag=T)
+
+# Plot
+plot_roc_df <- plot_roc_data(roc_res)
+
+require(ggplot2)
+ggplot(plot_roc_df, aes(x = 1-Specificity, y=Sensitivity)) +
+  geom_path(aes(color = Group, linetype=Method), size=1.5) +
+  geom_segment(aes(x = 0, y = 0, xend = 1, yend = 1), 
+                        colour='grey', linetype = 'dotdash') +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5), 
+                 legend.justification=c(1, 0), legend.position=c(.95, .05),
+                 legend.title=element_blank(), 
+                 legend.background = element_rect(fill=NULL, size=0.5, 
+                                                           linetype="solid", colour ="black"))
+
+# AUC
+
+prob <- predict(tree, test, type='prob')
+auc_tree <- multiclass.roc(test$Class,prob) #AUC score
+auc_tree
+
+# confusion matrix
+
+cm <- table(test$Class, pred_class_tree )
+cm
+
+
+# Specificity
+
+Specificty_class_EI <- (cm[2, 2] + cm[3, 3])/(cm[2, 1] + cm[3, 1] + cm[2, 2] + cm[3, 3])
+
+Specificty_class_IE <- (cm[1, 1] + cm[3, 3])/(cm[1, 2] + cm[3, 2] + cm[1, 1] + cm[3, 3])
+
+Specificty_class_N <- (cm[2, 2] + cm[1, 1])/(cm[1, 3] + cm[2, 3] + cm[2, 2] + cm[1, 1])
+
+spec_tree <- matrix(c(Specificty_class_EI,Specificty_class_IE,Specificty_class_N),nrow=1,dimnames=list("",c("EI","IE","N")))
+spec_tree
+
+# Precision
+
+prec_tree <- (diag(cm) / colSums(cm))
+prec_tree
+
+# Recall(sensitivity) for each class 
+recall_tree <- (diag(cm) / rowSums(cm))
+recall_tree
+
+```
+
+
+## 2.7 K Nearest Neighbor
+
+#K-nearest neighbors (kNN) is a non-parametric method for classification, meaning that there
+#are no model parameters to estimate. The knn() function from class package is used, which takes the training set, its labels, and testing set as #inputs, and returns the class predictions for the testing set.
+
+
+```{r}
+
+library(class)
+library(caret)
+
+# preparing data     Hot Encoding    as  KNN   doesnot accept categorical target that we did hot encoding 
+
+x_train <- train[,c('attribute_30', 'attribute_29', 'attribute_31', 'attribute_32', 'attribute_35', 'attribute_33', 'attribute_28', 'attribute_34', 'attribute_36', 'attribute_23', 'attribute_25', 'attribute_20', 'attribute_22', 'attribute_26', 'attribute_21', 'attribute_24', 'attribute_17', 'attribute_16')]
+y_train <- train$Class
+
+x_test <- test[,c('attribute_30', 'attribute_29', 'attribute_31', 'attribute_32', 'attribute_35', 'attribute_33', 'attribute_28', 'attribute_34', 'attribute_36', 'attribute_23', 'attribute_25', 'attribute_20', 'attribute_22', 'attribute_26', 'attribute_21', 'attribute_24', 'attribute_17', 'attribute_16')]
+y_test <- test$Class
+
+
+library(fastDummies)
+
+# Create dummy variable since KNN only handles numerical variables
+x_dummy_train <- dummy_cols(x_train, select_columns = colnames(x_train), remove_selected_columns = T)
+x_dummy_test <- dummy_cols(x_test, select_columns = colnames(x_test), remove_selected_columns = T)
+
+#KNN model
+knn <- train(x_dummy_train,y_train, method="knn")
+
+# Make predictions
+pred_class_knn = predict(knn, newdata=x_dummy_test,type="raw")
+```
+
+### 2.7.1 Model Performance Evaluation
+```{r}
+# Model accuracy
+acc_knn <- mean(pred_class_knn == y_test)
+acc_knn
+
+# ROC plot
+
+pred_knn <- predict(knn, x_dummy_test, type='prob')
+pred_knn <- data.frame(pred_knn)
+colnames(pred_knn) <- paste(colnames(pred_knn), "_pred_knn")
+
+# Merge true labels and predicted values
+true_label <- dummies::dummy(y_test, sep = ".")
+true_label <- data.frame(true_label)
+colnames(true_label) <- gsub(".*?\\.", "", colnames(true_label))
+colnames(true_label) <- paste(colnames(true_label), "_true")
+
+final_df <- cbind(true_label, pred_knn)
+
+
+# multiROC 
+
+require(multiROC)
+roc_res <- multi_roc(final_df, force_diag=T)
+
+# Plot
+plot_roc_df <- plot_roc_data(roc_res)
+
+require(ggplot2)
+ggplot(plot_roc_df, aes(x = 1-Specificity, y=Sensitivity)) +
+  geom_path(aes(color = Group, linetype=Method), size=1.5) +
+  geom_segment(aes(x = 0, y = 0, xend = 1, yend = 1), 
+                        colour='grey', linetype = 'dotdash') +
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = 0.5), 
+                 legend.justification=c(1, 0), legend.position=c(.95, .05),
+                 legend.title=element_blank(), 
+                 legend.background = element_rect(fill=NULL, size=0.5, 
+                                                           linetype="solid", colour ="black"))
+
+# AUC
+
+prob <- predict(knn, x_dummy_test, type='prob')
+auc_knn <- multiclass.roc(y_test,prob) 
+
+#AUC score
+auc_knn 
+
+#confusion matrix
+cm <- table(y_test, pred_class_knn )
+cm
+
+#Specificity
+
+Specificty_class_EI <- (cm[2, 2] + cm[3, 3])/(cm[2, 1] + cm[3, 1] + cm[2, 2] + cm[3, 3])
+
+Specificty_class_IE <- (cm[1, 1] + cm[3, 3])/(cm[1, 2] + cm[3, 2] + cm[1, 1] + cm[3, 3])
+
+Specificty_class_N <- (cm[2, 2] + cm[1, 1])/(cm[1, 3] + cm[2, 3] + cm[2, 2] + cm[1, 1])
+
+spec_knn <- matrix(c(Specificty_class_EI,Specificty_class_IE,Specificty_class_N),nrow=1,dimnames=list("",c("EI","IE","N")))
+spec_knn
+  
+#Precision
+prec_knn <- (diag(cm) / colSums(cm))
+prec_knn
+
+#Recall(sensitivity) for each class 
+recall_knn <- (diag(cm) / rowSums(cm))
+recall_knn
+
+```
+
+```{r}
+
+# Variance Estimation
+
+# Get indices for 90% of the total number of samples
+varEst_tridx=sample(1:nrow(train), 0.9*nrow(train), replace=F) 
+
+ # Define training data for variance estimation
+
+varEst_trdf=train[varEst_tridx,]
+
+# Define variance estimation partition
+varEst_tstdf=train[-varEst_tridx,] 
+
+varEst=function(trdf,tstdf,percent,type){
+  target_idx=which(names(trdf)=="Class")
+  
+  # Initialize a variable to store the ac curacies computed in the loop
+  acc_varEstp=c(); 
+  for(i in 1:100){
+
+    # Take samples, percent% of the data
+    varEstp_tridx=sample(1:nrow(trdf), percent/100*nrow(trdf), replace=F) 
+  varEstp_trdf=trdf[varEstp_tridx,]
+  if(type=="multinom"){
+    mn_model_varEstp=nnet::multinom(Class~attribute_30 +attribute_29+attribute_31+attribute_32+ attribute_35+attribute_33 + attribute_28 + attribute_34+ attribute_36 + attribute_23 +attribute_25+attribute_20+attribute_22 + attribute_26 + attribute_21 + attribute_24 + attribute_17 + attribute_16, varEstp_trdf, maxit=1000, trace=F) 
+    
+    #Train a multinomial model
+    
+    pred_varEstp=predict(mn_model_varEstp, tstdf[,-target_idx], type="class")
+    
+# Predict with variance estimation partition
+    
+  }
+  else if(type=="svm"){
+    varEstp_trdf$Class=as.factor(varEstp_trdf$Class)
+    svm_model_varEstp=svm(Class~attribute_30 +attribute_29+attribute_31+attribute_32+ attribute_35+attribute_33 + attribute_28 + attribute_34+ attribute_36 + attribute_23 +attribute_25+attribute_20+attribute_22 + attribute_26 + attribute_21 + attribute_24 + attribute_17 + attribute_16,data=varEstp_trdf) 
+    
+    # Train a svm model
+    
+    pred_varEstp=predict(svm_model_varEstp, tstdf[,-target_idx], type="class")
+    
+# Predict with variance estimation partition
+  }
+  else if(type=="tree"){
+    tree_model_varEstp=rpart(Class~attribute_30 +attribute_29+attribute_31+attribute_32+ attribute_35+attribute_33 + attribute_28 + attribute_34+ attribute_36 + attribute_23 +attribute_25+attribute_20+attribute_22 + attribute_26 + attribute_21 + attribute_24 + attribute_17 + attribute_16,data=varEstp_trdf) 
+    
+    # Train a svm model
+    pred_varEstp=predict(tree_model_varEstp, tstdf[,-target_idx], type="class")
+    
+# Predict with variance estimation partition
+  }
+  else if(type=="knn"){
+    
+    #preparing data 
+    
+    x_train <- varEstp_trdf[,c('attribute_30', 'attribute_29', 'attribute_31', 'attribute_32', 'attribute_35', 'attribute_33', 'attribute_28', 'attribute_34', 'attribute_36', 'attribute_23', 'attribute_25', 'attribute_20', 'attribute_22', 'attribute_26', 'attribute_21', 'attribute_24', 'attribute_17', 'attribute_16')]
+    trclass <- varEstp_trdf$Class
+    
+    x_test <- tstdf[,c('attribute_30', 'attribute_29', 'attribute_31', 'attribute_32', 'attribute_35', 'attribute_33', 'attribute_28', 'attribute_34', 'attribute_36', 'attribute_23', 'attribute_25', 'attribute_20', 'attribute_22', 'attribute_26', 'attribute_21', 'attribute_24', 'attribute_17', 'attribute_16')]
+    tstclass <- tstdf$Class
+    
+    
+    # Create dummy variable since KNN only handles numerical variables
+    
+    varEstp_trdf <- dummy_cols(x_train, select_columns = colnames(x_train), remove_selected_columns = T)
+    tstdf1 <- dummy_cols(x_test, select_columns = colnames(x_test), remove_selected_columns = T)
+
+    pred_varEstp=knn(varEstp_trdf[,-target_idx], tstdf1[,-target_idx], trclass,k = 15, prob=TRUE)
+  }
+  else{
+    print("type should be 'multinom' 'svm' 'tree' or 'knn'")
+ return()
+  }
+  
+  # Avoids issues when number of classes are not equal
+  u_varEstp=union(pred_varEstp, tstdf[,target_idx]) 
+  t_varEstp=table(factor(pred_varEstp, u_varEstp), factor(tstdf[,target_idx], u_varEstp))
+  
+   # Confusion Matrix
+  mn_cfm_varEstp=confusionMatrix(t_varEstp)
+  
+     # Accuracy of predictions
+
+  mn_acc_varEstp=mn_cfm_varEstp$overall[['Accuracy']]
+  
+  acc_varEstp=c(acc_varEstp,mn_acc_varEstp)
+  
+  # Store
+  }
+  
+  mean_varEstp=signif(mean(acc_varEstp),4)
+  var_varEstp=signif(var(acc_varEstp),4)
+  varEstp=data.frame(mean_varEstp,var_varEstp)
+  names(varEstp)=c("Mean of Accuracies","Variance of Accuracies")
+  return(t(varEstp))
+}
+
+```
+
+```{r}
+
+#for Logistic
+
+# Variance estimation using 30% of the data
+mn_varEst30=varEst(varEst_trdf, varEst_tstdf, 30, type="multinom") 
+
+# Variance estimation using 60% of the data
+mn_varEst60=varEst(varEst_trdf, varEst_tstdf, 60, type="multinom") 
+
+# Variance estimation using 100% of the data
+mn_varEst100=varEst(varEst_trdf, varEst_tstdf, 100, type="multinom") 
+
+print("Logistic-Regression Variance Estimation using 30% of data:")
+mn_varEst30
+print("Logistic-Regression Variance Estimation using 60% of data:")
+mn_varEst60
+print("Logistic-Regression Variance Estimation using 100% of data:")
+mn_varEst100
+```
+
+```{r}
+
+#for SVM
+
+# Variance estimation using 30% of the data
+svm_varEst30=varEst(varEst_trdf, varEst_tstdf, 30, type="svm") 
+
+# Variance estimation using 60% of the data
+svm_varEst60=varEst(varEst_trdf, varEst_tstdf, 60, type="svm") 
+
+# Variance estimation using 100% of the data
+svm_varEst100=varEst(varEst_trdf, varEst_tstdf, 100, type="svm") 
+
+print("SVM Variance Estimation using 30% of data:")
+svm_varEst30
+print("SVM Variance Estimation using 60% of data:")
+svm_varEst60
+print("SVM Variance Estimation using 100% of data:")
+svm_varEst100
+```
+
+```{r}
+#for Decision Tree
+
+ # Variance estimation using 30% of the data
+tree_varEst30=varEst(varEst_trdf, varEst_tstdf, 30, type="tree")
+
+# Variance estimation using 60% of the data
+tree_varEst60=varEst(varEst_trdf, varEst_tstdf, 60, type="tree") 
+
+# Variance estimation using 100% of the data
+tree_varEst100=varEst(varEst_trdf, varEst_tstdf, 100, type="tree") 
+
+print("Tree Variance Estimation using 30% of data:")
+tree_varEst30
+print("Tree Variance Estimation using 60% of data:")
+tree_varEst30
+print("Tree Variance Estimation using 100% of data:")
+tree_varEst30
+
+```
+
+
+```{r}
+#for KNN
+
+# Variance estimation using 30% of the data
+knn_varEst30=varEst(varEst_trdf, varEst_tstdf, 30, type="knn") 
+
+# Variance estimation using 60% of the data
+knn_varEst60=varEst(varEst_trdf, varEst_tstdf, 60, type="knn") 
+
+# Variance estimation using 100% of the data
+knn_varEst100=varEst(varEst_trdf, varEst_tstdf, 100, type="knn") 
+
+print("KNN Variance Estimation using 30% of data:")
+knn_varEst30
+print("KNN Variance Estimation using 60% of data:")
+knn_varEst60
+print("KNN Variance Estimation using 100% of data:")
+knn_varEst30
+
+```
+#From all above model variance estimates, it can be concluded that KNN model has highest variance estimates and SVM model has almost 0 variances in all #three scenarios.
+
+
+
+``` {r}
+
+# 3. Summary
+
+
+
+
+# Our Data set splice.csv  has 3190 rows and 62  columns  the number of columns includes 61 feature and 1 class variable.  Class variable are divided #into 3 groups of  IE, EI, N. 
+#We checked the importance features  and we come up with 18 features that are extremely important. 
+#We confirmed that by running a logistic model with the 60 features and  another model with 18 features
+#The model with 18 feature has 95% accuracy and Lower AIC of 232  comparing to the model with 
+#60 feature that has accuracy of 91%  and AIC of 748. 
+#Based on the above we information we continued our analysis using the most important 18 features. 
+#Analyzing the data we using frequency  table we realize that there is a class imbalance and that might be a problem.  
+#                        EI              IE                      N 
+#                       560             550                     1123 
+#                     0.2507837     0.2463054                0.5029109
+
+#To solve the problem of imbalance we assigned specific weight for each group to reverse the imbalance in our dataset. Considering we have 3 groups so #we multiply each with 1/3 to reverse the imbalance. 
+
+
+# We have trained and tested 4 models on our data which are Logistic Classification, Support Vector Machine (SVM), Decision Tree Classifier and #K-Nearest Neighbor classifier. We checked model performance using accuracy, Area under curve (AUC), precision, recall and specificity.
+
+
+```{r}
+
+library(dplyr)
+library(kableExtra)
+#Model accuracy comparison
+matrix(c(acc_logistic,acc_svm,acc_tree,acc_knn),nrow=1,dimnames=list("",c("Logistic","SVM","Decision Tree","Nearest Neighbor"))) %>%
+  kbl(caption = "Accuracy") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+
+```
+
+We can see that Logistic model is best among all in terms of accurately predicting class an observation. We'll confirm this with Area under curve metric also
+
+
+```{r}
+
+#Model AUC comparison
+
+matrix(c(substr(auc_logistic[6],1,6),substr(auc_svm[6],1,6),substr(auc_tree[6],1,6),substr(auc_knn[6],1,6)),nrow=1,dimnames=list("",c("Logistic","SVM","DecisionTree","Nearest Neighbor"))) %>%
+  kbl(caption = "Area under ROC (AUC)") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+```
+AUC is almost same for Logistic and SVM, even though SVM has slightly high than Logistic, we choose Logistic as best model on basis of high accuracy and almost same AUC with SVM.
+
+```{r}
+# Comment on ROC Curves
+
+```
+An ROC curve (receiver operating characteristic curve) is a graph showing the performance of a classification model at all classification thresholds. This curve plots two parameters:True Positive Rate(Sensitivity) and False Positive Rate(1-Specificity). ROC curve for all four algorithm are almost same in shape and it can be confirmed by looking at AUC since all four have almost equal values. All four models performed good enough with AUC ~98%. 
+
+
+``` {r}
+
+#Model Specificity comparison
+
+matrix(c(spec_logistic,spec_svm,spec_tree,spec_knn),nrow=3,dimnames=list(c("EI","IE","N"),c("Logistic","SVM","Decision Tree","Nearest Neighbor"))) %>%
+  kbl(caption = "Specificity") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+```
+
+``` {r}
+#Model Precision comparison
+
+matrix(c(prec_logistic,prec_svm,prec_tree,prec_knn),nrow=3,dimnames=list(c("EI","IE","N"),c("Logistic","SVM","Decision Tree","Nearest Neighbor"))) %>%
+  kbl(caption = "Precision") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+```
+
+``` {r}
+#Model Recall comparison
+matrix(c(recall_logistic,recall_svm,recall_tree,recall_knn),nrow=3,dimnames=list(c("EI","IE","N"),c("Logistic","SVM","Decision Tree","Nearest Neighbor"))) %>%
+  kbl(caption = "Recall") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+```
+``` {r}
+#Model Class comparison in Test data
+orig_class <- data.frame(table(test$Class))
+pred_class_log <- data.frame(table(pred_class_log))
+pred_class_svm <- data.frame(table(pred_class_svm))
+pred_class_tree <- data.frame(table(pred_class_tree))
+pred_class_knn <- data.frame(table(pred_class_knn))
+data.frame(Observation = orig_class[,2],Class=orig_class[,1],`Logistic(predicted)`=pred_class_log[,2],`SVM(predicted)`=pred_class_svm[,2],`DecisionTree(predicted)`=pred_class_tree[,2],`KNN(predicted)`=pred_class_knn[,2]) %>%
+  kbl(caption = "Class Predictions") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+
+```
+Class distribution of all models approximately similar and doesn't vary much which is evident from model performance metrics also.
+### Variance Estimation
